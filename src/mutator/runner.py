@@ -71,8 +71,9 @@ def display_command(command: Command) -> str:
 
 
 class CommandRunner:
-    def __init__(self, verbose: bool = False):
+    def __init__(self, verbose: bool = False, environment: dict[str, str] | None = None):
         self.verbose = verbose
+        self.environment = environment
 
     def run(self, command: Command, cwd: Path, timeout: float | None) -> CommandResult:
         """Run `command` in `cwd`.
@@ -85,7 +86,7 @@ class CommandRunner:
         if self.verbose:
             print(f"+ ({cwd}) {display_command(command)}", file=sys.stderr)
         started = time.monotonic()
-        environment = os.environ.copy()
+        environment = (os.environ if self.environment is None else self.environment).copy()
         environment["PYTHONDONTWRITEBYTECODE"] = "1"
         _prefer_worker_sources(cwd, environment)
         try:
