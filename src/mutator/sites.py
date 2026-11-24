@@ -336,7 +336,52 @@ def _visit_leaf(node, data: bytes, language: str, found: list[RawSite]) -> None:
     _visit_constant(node, token, found)
 
 
+def _swift_skipped(node) -> bool:
+    current = node
+    while current is not None:
+        kind = current.type
+        if "string_literal" in kind or "comment" in kind or kind in {
+            "attribute", "user_type", "type_constraints", "type_constraint",
+            "type_arguments", "type_parameters",
+        }:
+            return True
+        current = current.parent
+    return False
+
+
+def _swift_mutant(node, token: str) -> str | None:
+    parent = node.parent
+    if parent is not None and parent.type == "bang":
+        parent = parent.parent
+    kind = parent.type if parent is not None else ""
+    if kind == "prefix_expression" and token in {"!", "-"}:
+        return ""
+    if kind in {
+        "additive_expression", "multiplicative_expression", "infix_expression",
+        "equality_expression", "comparison_expression",
+        "conjunction_expression", "disjunction_expression",
+    }:
+        return _BINARY.get(token)
+    return None
+
+
+def _visit_swift(node, data: bytes, found: list[RawSite]) -> None:
+    if node.child_count or _swift_skipped(node):
+        return
+    token = _text(data, node)
+    mutant = _swift_mutant(node, token)
+    if mutant is not None:
+        category = "unary" if mutant == "" else _category(token)
+        _add(found, node, token, mutant, category)
+    else:
+        _visit_boolean_token(node, token, found)
+        _visit_constant(node, token, found)
+
+
 def _visit_node(node, data: bytes, language: str, found: list[RawSite]) -> None:
+    if language == "swift":
+        _visit_swift(node, data, found)
+        return
     if language == "typescript" and _in_type(node):
         return
     if node.child_count == 0:
