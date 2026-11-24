@@ -1,10 +1,10 @@
 # mutator
 
-Mutation testing for Clojure, Java, Go, TypeScript, Rust, and Python. One run detects the language of each source file, applies that language's mutation rules, and writes the snapshot [uml-viewer](https://github.com/unclebob/uml-viewer) already reads.
+Mutation testing for Clojure, Java, Go, TypeScript, Rust, Python, and Swift. One run detects the language of each source file, applies that language's mutation rules, and writes the snapshot [uml-viewer](https://github.com/unclebob/uml-viewer) already reads.
 
 Clojure follows [clj-mutate](https://github.com/unclebob/clj-mutate). Go follows [mutate4go](https://github.com/unclebob/mutate4go). Java follows [mutate4java](https://github.com/unclebob/mutate4java). TypeScript, Rust, and Python use the same decisions as Java, spelled in that language. Function names and namespaces come from [crapper](https://github.com/unclebob/crapper), which is what uml-viewer joins to `.metrics/crap.edn`.
 
-A mutant is killed when the tests fail or time out. It survives when the tests still pass. A site on a line the coverage report does not hit is uncovered and is not run. The score uml-viewer paints is killed / (killed + survived).
+The original-language runners count failing tests or timeouts as killed. Swift uses the stricter outcome rules below. A mutant survives when its tests pass. A site on a line the coverage report does not hit is uncovered and is not run. The score uml-viewer paints is killed / (killed + survived).
 
 ## Run
 
@@ -33,7 +33,57 @@ Once a snapshot exists, the next run is differential. It reruns survivors and ev
 
 Exit `0` when every executed mutant was killed. Exit `2` when the baseline tests fail. Exit `3` when a mutant survives. A failed baseline does not rewrite the snapshot.
 
-## Workers
+## SwiftPM (fork qualification)
+
+Swift requires a Swift-capable crapper backend. This fork is qualified with
+[Krapper v0.2.0](https://github.com/iksnae/krapper/releases/tag/v0.2.0), which
+provides the compatible `crapper` Python package. Current upstream crapper lacks
+Swift discovery. Install only one provider in the environment:
+
+```sh
+python3 -m venv .venv
+.venv/bin/python -m pip install -e '.[dev]'
+.venv/bin/python -m pip install 'https://github.com/iksnae/krapper/releases/download/v0.2.0/krapper-0.2.0-py3-none-any.whl#sha256=2d54c2cae9a8cdf7fe6a84d60fd67073309b4a4cd6eecfec20093374b7661960'
+.venv/bin/mutator --no-coverage --max-workers 1 Sources
+.venv/bin/mutator --no-coverage --test-command 'swift test --filter positiveValue' Sources
+```
+
+Run from the package root, or supply `--root`. One SwiftPM package at that root
+is supported. `--no-coverage` runs all selected sites; alternatively supply your
+own coverage producer/report. Swift coverage is not generated automatically.
+Test files under `Tests/` and `SwiftTests/` are excluded.
+
+Swift runs sequentially, even when the worker cap is larger. It copies the
+project into a temporary workspace with private HOME, build, temporary, module
+cache, package cache, configuration and security paths. Source symlinks and
+symlinked output directories are refused. Tests are trusted code; this is not
+an OS security sandbox. The original checkout is never mutated or built.
+
+A pristine copy must build and execute passing tests first. Each mutation then
+uses `swift build --build-tests` followed by `swift test --skip-build`. XCTest
+and Swift Testing XML reports must contain executed test cases. A failing build
+is **invalid**, not killed; timeouts and execution/report errors are separate.
+Only killed and survived enter the score denominator. Errors, timeouts, and runs
+with only invalid mutants exit 2. A mix with surviving valid mutants exits 3.
+Controls have a five-minute limit; mutant phases have at least 30 seconds and
+scale with the measured control durations and `--timeout-factor`.
+
+`--test-command` accepts `swift test` with `--filter`/`--skip` selection pairs
+only. Build, report and isolation options remain controlled by mutator. Swift
+always reruns selected sites; it does not reuse function-text-only cached kills.
+Commands, exit codes, timings, outputs, input hashes and individual outcomes are
+retained in `target/mutation-runs/<run>/results.json`; temporary workers are
+removed. Raw logs can contain project details and should not be published
+without review. Non-kill counters are additive EDN fields; existing viewer
+support for those fields has not been qualified.
+
+Local qualification uses macOS/arm64 with Swift 6.4.2. Other Swift toolchains
+must pass the real fixture tests before being considered qualified. Upstream
+submission and the sdm-agent trial remain deferred. Legacy-language overlays
+and outcome semantics are unchanged; the known Go embedded-resource overlay
+failure is not fixed by this Swift path.
+
+## Workers (original languages)
 
 Mutants of one file run at the same time. The default is one worker per core. `--max-workers` sets the cap. The run uses the smaller of that cap, the number of cores, and the number of selected sites. Files are still taken one at a time.
 

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import os
 import subprocess
 import sys
@@ -68,7 +69,7 @@ def _test_directory_text() -> str:
 HELP = f"""\
 Usage: mutator [options] [path-or-filter ...]
 
-Discover mutation sites in Clojure, Java, Go, TypeScript, Rust, and Python,
+Discover mutation sites in Clojure, Java, Go, TypeScript, Rust, Python, and Swift,
 run the project's tests against each one, and write `.metrics/mutate` for
 uml-viewer. Namespaces and function names are the ones crapper writes into
 `.metrics/crap.edn`.
@@ -134,11 +135,22 @@ target/mutation-workers with its own copy of the mutated file. The project
 tree is left unchanged. A copy left under target/mutator-backup/ by an
 interrupted older run is restored before a non-scan run.
 
+SwiftPM:
+  Requires a Swift-capable crapper backend (Krapper v0.2.0 is qualified).
+  Runs sequentially in a private source/build/HOME workspace at --root.
+  A pristine worker must build and execute passing tests first.
+  Compilation failure is INVALID, not KILLED. TIMEOUT and ERROR are separate.
+  Scores use only KILLED and SURVIVED; no cached Swift kills are reused.
+  --test-command accepts only swift test with --filter/--skip selections.
+  Coverage requires an explicit producer/report, or use --no-coverage.
+  Source/output symlinks are refused. Trusted tests are not OS-sandboxed.
+  Per-command evidence is kept in target/mutation-runs/<run>/results.json.
+
 Exit codes:
-  0  every executed mutant was killed, or there was nothing to run
+  0  every valid executed mutant was killed, or there was nothing to run
   1  usage error
-  2  baseline tests failed
-  3  at least one mutant survived
+  2  baseline/control failed, or Swift execution was incomplete
+  3  at least one valid mutant survived
 
 Coverage, when it is produced, uses the same commands as crapper:
   Clojure      clj -M:cov --lcov
@@ -233,8 +245,8 @@ def parse_args(argv: list[str] | None = None) -> Options:
                 continue
             if arg == "--timeout-factor":
                 options.timeout_factor = float(_take(args, index, arg))
-                if options.timeout_factor <= 0:
-                    raise ValueError("--timeout-factor requires a positive number")
+                if not math.isfinite(options.timeout_factor) or options.timeout_factor <= 0:
+                    raise ValueError("--timeout-factor requires a finite positive number")
                 index += 2
                 continue
             if arg == "--mutation-warning":

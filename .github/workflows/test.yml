@@ -1,0 +1,31 @@
+name: Tests
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: macos-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Require the Swift toolchain
+        run: swift --version
+      - name: Install test dependencies and compatible discovery backend
+        run: |
+          python -m pip install -e '.[dev]'
+          python -m pip install 'https://github.com/iksnae/krapper/releases/download/v0.2.0/krapper-0.2.0-py3-none-any.whl#sha256=2d54c2cae9a8cdf7fe6a84d60fd67073309b4a4cd6eecfec20093374b7661960'
+      - name: Run unit and real SwiftPM fixture tests
+        run: python -m pytest -q

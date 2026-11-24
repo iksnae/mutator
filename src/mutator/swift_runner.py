@@ -40,8 +40,8 @@ def _check_links(root: Path) -> None:
         dirs[:] = [name for name in dirs if name not in _SKIP]
         for name in [*dirs, *names]:
             path = Path(folder) / name
-            if path.is_symlink() and not path.resolve().is_relative_to(root):
-                raise ValueError(f'Swift workspace symlink escapes project: {path}')
+            if path.is_symlink():
+                raise ValueError(f'Swift workspace does not support symlinks: {path}')
 
 
 def _workspace(root: Path, base: Path) -> Path:
@@ -129,6 +129,8 @@ def run_swift_mutants(root: Path, source: Path, original: bytes, sites,
         raise ValueError('Swift mutation execution requires Package.swift at --root.')
     relative = source.resolve().relative_to(root)
     workers = root / 'target/mutation-workers'
+    if any(path.is_symlink() for path in (root / 'target', workers, root / 'target/mutation-runs')):
+        raise ValueError('Swift output directories must not be symlinks.')
     workers.mkdir(parents=True, exist_ok=True)
     with TemporaryDirectory(prefix='run-', dir=workers) as directory:
         base = Path(directory)
@@ -156,6 +158,8 @@ def run_swift_mutants(root: Path, source: Path, original: bytes, sites,
         if classify_tests(control, report) != 'survived':
             raise SwiftExecutionError(f'Swift test control failed or executed no tests; see {output}.')
         timeout = max(30.0, compiled.seconds * timeout_factor, control.seconds * timeout_factor)
+        if not math.isfinite(timeout):
+            raise ValueError('Swift timeout budget overflowed.')
         for site in sites:
             evidence['outcomes'][site.mutation_id] = _mutant(
                 site, original, destination, runner, build, tests, project, timeout,
