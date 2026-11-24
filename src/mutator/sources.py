@@ -24,7 +24,7 @@ def is_test_path(relative: Path, test_dirs: set[str]) -> bool:
     parts = relative.parts
     if not parts:
         return False
-    if parts[0] in test_dirs:
+    if parts[0] in test_dirs | {"Tests", "SwiftTests"}:
         return True
     return len(parts) >= 2 and parts[0] == "src" and parts[1] in SRC_TEST_DIRS
 
@@ -36,8 +36,15 @@ def _relative_to(path: Path, root: Path) -> Path | None:
         return None
 
 
+def source_language(path: Path, crapper) -> str | None:
+    language = crapper.discover.language_of(path)
+    if path.suffix == ".swift" and language != "swift":
+        raise ValueError("Swift requires a Swift-capable crapper backend, such as Krapper.")
+    return language
+
+
 def is_mutable_source(path: Path, root: Path, crapper) -> bool:
-    if crapper.discover.language_of(path) is None:
+    if source_language(path, crapper) is None:
         return False
     relative = _relative_to(path, root)
     if relative is None:
@@ -50,7 +57,7 @@ def is_mutable_source(path: Path, root: Path, crapper) -> bool:
 
 
 def is_skipped_test(path: Path, root: Path, crapper) -> bool:
-    if crapper.discover.language_of(path) is None:
+    if source_language(path, crapper) is None:
         return False
     relative = _relative_to(path, root)
     if relative is not None and is_test_path(relative, set(crapper.discover.TEST_DIRS)):

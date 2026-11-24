@@ -54,6 +54,8 @@ def is_private(language: str, name: str, source: str, start: int, end: int) -> b
         return bool(re.match(r"\(defn-", header))
     if language == "java":
         return bool(re.search(r"\bprivate\b", header))
+    if language == "swift":
+        return bool(re.search(r"\b(?:private|fileprivate)\b(?!\s*\()", header.split("{", 1)[0]))
     if language == "go":
         return name[:1].islower()
     if language == "python":
