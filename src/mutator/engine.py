@@ -8,10 +8,11 @@ from pathlib import Path
 from mutator.crapper_link import ensure_crapper
 from mutator.functions import form_digests, form_spans, sites_in_file
 from mutator.metrics import load_history, source_key, write_results
-from mutator.model import FormResult, RunResult, Site
+from mutator.model import FormResult, History, RunResult, Site
 from mutator.report import format_scan
 from mutator.runner import Command, CommandRunner, display_command, test_plan
 from mutator.workers import run_mutants
+from mutator.swift_runner import SwiftExecutionError, run_swift_mutants
 
 
 def restore_backups(root: Path) -> list[Path]:
@@ -117,18 +118,14 @@ def _forms(
     for key, (start, end, name, private) in sorted(spans.items(), key=lambda item: item[1][0]):
         namespace, form = key
         owned = grouped.get(key, [])
-        killed = survived = uncovered = 0
+        counts = dict.fromkeys(('killed', 'survived', 'uncovered', 'invalid', 'timeout', 'error'), 0)
         for site in owned:
             if not covered[site.mutation_id]:
-                uncovered += 1
+                counts['uncovered'] += 1
                 continue
-            status = outcomes.get(site.mutation_id)
-            if status == "killed":
-                killed += 1
-            elif status == "survived":
-                survived += 1
-            elif lines is None:
-                survived += 1
+            status = outcomes.get(site.mutation_id, 'survived' if lines is None else None)
+            if status in counts:
+                counts[status] += 1
         forms.append(
             FormResult(
                 id=form,
@@ -139,10 +136,8 @@ def _forms(
                 line=start,
                 end_line=end,
                 digest=digests[key],
-                killed=killed,
-                survived=survived,
-                uncovered=uncovered,
                 sites=len(owned),
+                **counts,
             )
         )
     return forms
@@ -222,6 +217,13 @@ def _apply_selected(
 ) -> RunResult | None:
     if not selected:
         return None
+    if language == 'swift':
+        try:
+            outcomes.update(run_swift_mutants(root, path, original, selected,
+                                             test_command, timeout_factor, runner.verbose))
+        except (SwiftExecutionError, ValueError, OSError) as exc:
+            return _baseline_failure(file_key, ['swift', 'test'], str(exc))
+        return None
     command, cwd = test_plan(root, path, language, test_command)
     cache_key = (_command_key(command), str(cwd))
     _remember_baseline(baselines, cache_key, runner, command, cwd)
@@ -291,7 +293,7 @@ def mutate_file(
     found = sites_in_file(source, path, root, file_key)
     covered = _coverage_map(found, covered_lines, ignore_coverage)
     _warn_uncovered(file_key, found, covered_lines, ignore_coverage)
-    history = load_history(root, file_key)
+    history = History() if language == 'swift' else load_history(root, file_key)
     digests = form_digests(source, path, root)
     selected = _select(found, covered, history, digests, mutate_all, lines)
     outcomes = _carry_forward(found, covered, history, digests)
@@ -314,7 +316,8 @@ def mutate_file(
         return failure
     forms = _forms(source, path, root, file_key, found, covered, outcomes, lines)
     written = write_results(root, file_key, forms, outcomes)
-    _restore_if_dirty(path, original)
+    if language != 'swift':
+        _restore_if_dirty(path, original)
     return RunResult(
         path=file_key,
         forms=forms,

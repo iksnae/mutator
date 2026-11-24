@@ -46,6 +46,9 @@ class FormResult:
     survived: int = 0
     uncovered: int = 0
     sites: int = 0
+    invalid: int = 0
+    timeout: int = 0
+    error: int = 0
 
     @property
     def score(self) -> float | None:

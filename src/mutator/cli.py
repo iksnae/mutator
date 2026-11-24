@@ -504,6 +504,15 @@ def _scan(options: Options, root: Path, files: list[Path]) -> int:
     return 0
 
 
+def _execution_incomplete(forms) -> bool:
+    known = sum(form.killed + form.survived for form in forms)
+    invalid = sum(form.invalid for form in forms)
+    uncertain = sum(form.timeout + form.error for form in forms)
+    if not known:
+        uncertain += invalid
+    return uncertain > 0
+
+
 def _record(result, forms: list, written: list[str]) -> str:
     if result.skipped:
         print(f"Skipping {result.path}: {result.skipped}", file=sys.stderr)
@@ -514,6 +523,9 @@ def _record(result, forms: list, written: list[str]) -> str:
     print(format_site_log(result.sites, result.statuses), end="")
     forms.extend(result.forms)
     written.extend(result.written)
+    if _execution_incomplete(result.forms):
+        print('Mutation execution incomplete: errors/timeouts or no valid mutants.', file=sys.stderr)
+        return 'baseline'
     if any(form.survived for form in result.forms):
         return "survived"
     return "ok"
@@ -575,6 +587,9 @@ def run(argv: list[str] | None = None) -> int:
     except GitStatusError as exc:
         print(exc.message, file=sys.stderr)
         return exc.code
+    except ValueError as exc:
+        print(str(exc), file=sys.stderr)
+        return 2
     if not files:
         print("No source files to mutate.")
         return 0
